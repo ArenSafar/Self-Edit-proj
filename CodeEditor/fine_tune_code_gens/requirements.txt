@@ -1,0 +1,7 @@
+transformers
+tensorboard
+evaluate
+datasets
+pyext
+sentencepiece
+
