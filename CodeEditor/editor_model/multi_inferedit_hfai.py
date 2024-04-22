@@ -133,7 +133,7 @@ def test_model_generation(local_gpu_rank, args):
     # rank = int(os.environ['RANK'])  # 当前机器编号
     gpus = torch.cuda.device_count()  # 每台机器的GPU个数
 
-    dist.init_process_group(backend='nccl', init_method='tcp://localhost:12345', world_size=gpus, rank= local_gpu_rank)
+    dist.init_process_group(backend='nccl', init_method='tcp://localhost:12346', world_size=gpus, rank= local_gpu_rank)
     torch.cuda.set_device(local_gpu_rank)
     args.device = torch.device("cuda", local_gpu_rank)
     args.world_size = gpus
@@ -239,7 +239,10 @@ def test_model_generation(local_gpu_rank, args):
                 # sample_type = "top_p:200"
                 sample_num = int(args.sample_type.split(":")[-1])
                 outputs = model.generate(inputs, max_length=args.block_size, do_sample=True, temperature=0.7, top_k=70, top_p=0.95, num_return_sequences=sample_num, bos_token_id=tokenizer.bos_token_id, eos_token_id=tokenizer.pad_token_id, pad_token_id=tokenizer.pad_token_id)
+                
+                print(f"SHAPES input {inputs.shape}, outputs {outputs.shape}")
                 outputs = outputs[:, inputs.size(1):]
+                
                 aligned_inputs = inputs.repeat_interleave(sample_num, dim=0) # repeat to match the outputs
                 if args.with_id:
                     aligned_ids = ids.repeat_interleave(sample_num, dim=0)

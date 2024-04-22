@@ -128,7 +128,6 @@ class editDataset(Dataset):
             for each_code_and_msg in tqdm(code_and_msg):
                 this_dataset = process_each_code_and_msg(each_code_and_msg, max_sol_num = args.max_sol_num)
                 all_dataset.extend(this_dataset)
-            print(all_dataset[0])
             length = len(all_dataset)
             logger.info("all_dataset size: %d", length)
             self.ids = list(range(length))
