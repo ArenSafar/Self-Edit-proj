@@ -5,8 +5,8 @@ from __future__ import absolute_import, division, print_function
 # import hf_env
 # hf_env.set_env('202111')
 
-# import torch.multiprocessing as mp
-# import torch.distributed as dist
+import torch.multiprocessing as mp
+import torch.distributed as dist
 
 # import hfai
 # import hfai.nccl.distributed as dist
@@ -24,21 +24,20 @@ import random
 import re
 import shutil
 import json
-import os
 
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset, SequentialSampler, RandomSampler,TensorDataset
-# from torch.utils.data.distributed import DistributedSampler
+from torch.utils.data.distributed import DistributedSampler
 from dataset import editDataset
 # from beam import Beam
 
-try:
-    from torch.utils.tensorboard import SummaryWriter
-except:
-    from tensorboardX import SummaryWriter
+# try:
+#     from torch.utils.tensorboard import SummaryWriter
+# except:
+#     from tensorboardX import SummaryWriter
 
-from torch.nn import CrossEntropyLoss
+# from torch.nn import CrossEntropyLoss
 
 # from bleu import _bleu
 from transformers import (WEIGHTS_NAME, AdamW, get_linear_schedule_with_warmup,
@@ -48,15 +47,15 @@ from transformers import (WEIGHTS_NAME, AdamW, get_linear_schedule_with_warmup,
                           RobertaConfig, RobertaForMaskedLM, RobertaTokenizer,
                           DistilBertConfig, DistilBertForMaskedLM, DistilBertTokenizer,
                           AutoConfig, AutoModelForCausalLM, AutoTokenizer)
-# from codegen_tokenizer import CodeGenTokenizer
-# from codegen_model import CodeGenForCausalLM
-# from codegen_config import CodeGenConfig
+from codegen_tokenizer import CodeGenTokenizer
+from codegen_model import CodeGenForCausalLM
+from codegen_config import CodeGenConfig
 
-# from xglm_tokenizer import XGLMTokenizer
-# from xglm_model import XGLMForCausalLM
-# from xglm_config import XGLMConfig
+from xglm_tokenizer import XGLMTokenizer
+from xglm_model import XGLMForCausalLM
+from xglm_config import XGLMConfig
 
-# from collate_utils import DataCollatePad
+from collate_utils import DataCollatePad
 
 import traceback
 
@@ -70,8 +69,8 @@ MODEL_CLASSES = {
     'roberta': (RobertaConfig, RobertaForMaskedLM, RobertaTokenizer),
     'distilbert': (DistilBertConfig, DistilBertForMaskedLM, DistilBertTokenizer),
     'auto': (AutoConfig, AutoModelForCausalLM, AutoTokenizer),
-    # 'codegen': (CodeGenConfig, CodeGenForCausalLM, CodeGenTokenizer),
-    # 'xglm': (XGLMConfig, XGLMForCausalLM, AutoTokenizer),
+    'codegen': (CodeGenConfig, CodeGenForCausalLM, CodeGenTokenizer),
+    'xglm': (XGLMConfig, XGLMForCausalLM, AutoTokenizer),
 }
 
 
@@ -88,11 +87,13 @@ parser.add_argument("--config_file", default=None, type=str, required=True,
 
 args = parser.parse_args()
 with open(args.config_file, 'r') as f:
-    
     add_args = json.load(f)
 for k, v in add_args.items():
     if k == "code_and_msg" or k == "nl_sol" or k == "additional_sol":
-        v = os.path.abspath(v)
+        if os.path.exists(v):
+            print(f"Pretrain dir for {k} found at", v)
+        else:
+            v = os.path.abspath(v)
     setattr(args, k, v)
 if not hasattr(args, "with_id"):
     args.with_id = False
@@ -130,12 +131,12 @@ def test_model_generation(local_gpu_rank, args):
     # port = os.environ['MASTER_PORT']
     # hosts = int(os.environ['WORLD_SIZE'])  # 机器个数
     # rank = int(os.environ['RANK'])  # 当前机器编号
-    # gpus = torch.cuda.device_count()  # 每台机器的GPU个数
+    gpus = torch.cuda.device_count()  # 每台机器的GPU个数
 
-    # dist.init_process_group(backend='nccl', init_method="tcp://" + str(ip) + ":" + str(port), world_size=hosts * gpus, rank=rank * gpus + local_gpu_rank)
+    dist.init_process_group(backend='nccl', init_method='tcp://localhost:12345', world_size=gpus, rank= local_gpu_rank)
     torch.cuda.set_device(local_gpu_rank)
     args.device = torch.device("cuda", local_gpu_rank)
-    args.world_size = 1
+    args.world_size = gpus
     args.local_rank = local_gpu_rank
     
     logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
@@ -238,8 +239,6 @@ def test_model_generation(local_gpu_rank, args):
                 # sample_type = "top_p:200"
                 sample_num = int(args.sample_type.split(":")[-1])
                 outputs = model.generate(inputs, max_length=args.block_size, do_sample=True, temperature=0.7, top_k=70, top_p=0.95, num_return_sequences=sample_num, bos_token_id=tokenizer.bos_token_id, eos_token_id=tokenizer.pad_token_id, pad_token_id=tokenizer.pad_token_id)
-                print("zzzzzzzzzzzz",inputs)
-                print(outputs[0])
                 outputs = outputs[:, inputs.size(1):]
                 aligned_inputs = inputs.repeat_interleave(sample_num, dim=0) # repeat to match the outputs
                 if args.with_id:
@@ -247,35 +246,31 @@ def test_model_generation(local_gpu_rank, args):
             else:
                 assert False, "sample type not supported"
 
-            # if outputs.size(1) < args.block_size:  # need padding because the lengths from different GPUs may be different
-            #     # batch_pred_padding = torch.full((outputs.size(0), args.block_size - outputs.size(1)), tokenizer.pad_token_id, dtype=outputs.dtype, device=outputs.device) # use the padding token of BART, and its token id is 1. Be careful with the data type.
-            #     outputs = torch.cat([outputs, batch_pred_padding], dim=1)
-            # if aligned_inputs.size(1) < args.block_size:  # need padding because the lengths from different GPUs may be different
-            #     batch_inp_padding = torch.full((aligned_inputs.size(0), args.block_size - aligned_inputs.size(1)), tokenizer.pad_token_id, dtype=aligned_inputs.dtype, device=aligned_inputs.device) # use the padding token of BART, and its token id is 1. Be careful with the data type.
-            #     aligned_inputs = torch.cat([aligned_inputs, batch_inp_padding], dim=1)
+            if outputs.size(1) < args.block_size:  # need padding because the lengths from different GPUs may be different
+                batch_pred_padding = torch.full((outputs.size(0), args.block_size - outputs.size(1)), tokenizer.pad_token_id, dtype=outputs.dtype, device=outputs.device) # use the padding token of BART, and its token id is 1. Be careful with the data type.
+                outputs = torch.cat([outputs, batch_pred_padding], dim=1)
+            if aligned_inputs.size(1) < args.block_size:  # need padding because the lengths from different GPUs may be different
+                batch_inp_padding = torch.full((aligned_inputs.size(0), args.block_size - aligned_inputs.size(1)), tokenizer.pad_token_id, dtype=aligned_inputs.dtype, device=aligned_inputs.device) # use the padding token of BART, and its token id is 1. Be careful with the data type.
+                aligned_inputs = torch.cat([aligned_inputs, batch_inp_padding], dim=1)
 
 
-            
-            # batch_pred = [torch.zeros_like(outputs, dtype=outputs.dtype).cuda() for _ in range(args.world_size)]  # initialized a list for collecting tensors from all GPUs. Be careful with the data type.
-            # batch_inputs = [torch.zeros_like(aligned_inputs, dtype=aligned_inputs.dtype).cuda() for _ in range(args.world_size)]  # initialized a list for collecting tensors from all GPUs. Be careful with the data type.
-            batch_pred = outputs
-            batch_inputs = aligned_inputs
+            batch_pred = [torch.zeros_like(outputs, dtype=outputs.dtype).cuda() for _ in range(args.world_size)]  # initialized a list for collecting tensors from all GPUs. Be careful with the data type.
+            batch_inputs = [torch.zeros_like(aligned_inputs, dtype=aligned_inputs.dtype).cuda() for _ in range(args.world_size)]  # initialized a list for collecting tensors from all GPUs. Be careful with the data type.
 
-            # dist.all_gather(batch_pred, outputs)  # collect data
-            # dist.all_gather(batch_inputs, aligned_inputs)  # collect data
+            dist.all_gather(batch_pred, outputs)  # collect data
+            dist.all_gather(batch_inputs, aligned_inputs)  # collect data
             if args.with_id:
-                # batch_ids = [torch.zeros_like(aligned_ids, dtype=aligned_ids.dtype).cuda() for _ in range(args.world_size)]
-                # dist.all_gather(batch_ids, aligned_ids)  # collect data
-                # batch_ids = [e.unsqueeze(1) for e in batch_ids]
-                # batch_ids = torch.stack(batch_ids, dim=1)
-                # batch_ids = batch_ids.view(-1)
-                batch_ids = aligned_ids.view(-1)
+                batch_ids = [torch.zeros_like(aligned_ids, dtype=aligned_ids.dtype).cuda() for _ in range(args.world_size)]
+                dist.all_gather(batch_ids, aligned_ids)  # collect data
+                batch_ids = [e.unsqueeze(1) for e in batch_ids]
+                batch_ids = torch.stack(batch_ids, dim=1)
+                batch_ids = batch_ids.view(-1)
                 batch_ids = batch_ids.cpu().numpy().tolist()
 
 
-            # batch_pred = torch.stack(batch_pred, dim=1)  # use stack, take care of the dimension
+            batch_pred = torch.stack(batch_pred, dim=1)  # use stack, take care of the dimension
             batch_pred = batch_pred.reshape(-1, args.block_size)
-            # batch_inputs = torch.stack(batch_inputs, dim=1)  # use stack, take care of the dimension
+            batch_inputs = torch.stack(batch_inputs, dim=1)  # use stack, take care of the dimension
             batch_inputs = batch_inputs.reshape(-1, args.block_size)
             
             if local_gpu_rank == 0:
@@ -307,5 +302,5 @@ def test_model_generation(local_gpu_rank, args):
         
 if __name__ == "__main__":
     ngpus = torch.cuda.device_count()
-    test_model_generation(0, args)
     # hfai.multiprocessing.spawn(test_model_generation, args=(args, ), nprocs=ngpus, bind_numa=True)
+    mp.spawn(test_model_generation, args=(args, ), nprocs=ngpus)
