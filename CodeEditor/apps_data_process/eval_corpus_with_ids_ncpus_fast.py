@@ -16,6 +16,7 @@ from collections import defaultdict
 from tqdm import tqdm
 
 from typing import Dict
+from collections import defaultdict
 
 DATASET = "codeparrot/apps"
 
@@ -252,27 +253,35 @@ def eval_edit(inp_path, save_path, eval_type = "train"):
     # print(len(gpt_generations) , len(question_ids))
     assert len(gpt_generations) % len(question_ids) == 0
     each_len = len(gpt_generations) // len(question_ids)
-    gpt_generations_dict = {}
-            
-    for i in range(len(question_ids)):
-        this_answers = gpt_generations[i*each_len:(i+1)*each_len]
+    gpt_generations_dict = defaultdict(list)
+    
+    if type(gpt_generations[0]) == dict:
+        print('\nThe input format is a dictionary!\n')
+        for d in gpt_generations:
+            if type(d['output']) == list:
+                gpt_generations_dict[int(d['id'])].extend(d['output'])
+            if type(d['output']) == str:
+                gpt_generations_dict[int(d['id'])].append(d['output'])
+                
+    
+    else:
+        for i in range(len(question_ids)):
+            this_answers = gpt_generations[i*each_len:(i+1)*each_len] 
         
-        if type(this_answers[0]) == dict:
-            this_answers = this_answers[0]['output']
-        elif type(this_answers[0]) == list:
-            this_answers = [e for ee in this_answers for e in ee]
-        elif type(this_answers[0]) == str:
-            this_answers = this_answers
-        else:
-            raise Exception("type error")
-        print(this_answers)
-        gpt_generations_dict[int(question_ids[i])] = this_answers
+            if type(this_answers[0]) == list:
+                this_answers = [e for ee in this_answers for e in ee]
+            elif type(this_answers[0]) == str:
+                this_answers = this_answers
+            else:
+                raise Exception("type error")
+            # print(this_answers)
+            gpt_generations_dict[int(question_ids[i])] = this_answers
+    print(gpt_generations_dict)
     generations = gpt_generations_dict
-    print(generations)
     print("min max num of each question: (should same)")
     print(min([len(e) for e in generations.values()]))
     print(max([len(e) for e in generations.values()]))
-    # assert min([len(e) for e in generations.values()]) == max([len(e) for e in generations.values()])
+    assert min([len(e) for e in generations.values()]) == max([len(e) for e in generations.values()])
     print("=====================================")
 
     load_type = eval_type
