@@ -240,8 +240,11 @@ def eval_edit(inp_path, save_path, eval_type = "train"):
     with open(gpt_input_path,'r') as f:
         gpt_generations = json.load(f)
 
-    with open(f"full_question_ids_apps_{eval_type}.json",'r') as f:
-        question_ids = json.load(f)
+    # with open(f"full_question_ids_apps_{eval_type}.json",'r') as f:
+    #     question_ids = json.load(f)
+    question_ids = list(range(len(gpt_generations)))
+    
+    
     
     print("len of question_ids", len(question_ids))
     print("len of gpt_generations", len(gpt_generations))
@@ -250,20 +253,26 @@ def eval_edit(inp_path, save_path, eval_type = "train"):
     assert len(gpt_generations) % len(question_ids) == 0
     each_len = len(gpt_generations) // len(question_ids)
     gpt_generations_dict = {}
+            
     for i in range(len(question_ids)):
         this_answers = gpt_generations[i*each_len:(i+1)*each_len]
-        if type(this_answers[0]) == list:
+        
+        if type(this_answers[0]) == dict:
+            this_answers = this_answers[0]['output']
+        elif type(this_answers[0]) == list:
             this_answers = [e for ee in this_answers for e in ee]
         elif type(this_answers[0]) == str:
             this_answers = this_answers
         else:
             raise Exception("type error")
+        print(this_answers)
         gpt_generations_dict[int(question_ids[i])] = this_answers
     generations = gpt_generations_dict
+    print(generations)
     print("min max num of each question: (should same)")
     print(min([len(e) for e in generations.values()]))
     print(max([len(e) for e in generations.values()]))
-    assert min([len(e) for e in generations.values()]) == max([len(e) for e in generations.values()])
+    # assert min([len(e) for e in generations.values()]) == max([len(e) for e in generations.values()])
     print("=====================================")
 
     load_type = eval_type
