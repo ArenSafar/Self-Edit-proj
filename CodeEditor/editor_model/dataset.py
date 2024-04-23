@@ -98,11 +98,55 @@ class editDataset(Dataset):
             logger.info("additional_sol size: %d", len(additional_sol))
             logger.info("create additional_sol from %s", self.additional_sol)
             
+            def split_blocks(text):
+                res = "#<START_CODE>\n"
+                # res += "#<START_BLOCK>\n"
+                prev_indent = [10e10]
+                tags = ['BS']
+                for line in text.split('\n'):
+                    if line.strip():  # Non-empty line
+                        current_indent = len(line) - len(line.lstrip())
+                        curr_tag = None
+                        prev_tag = "BS" if current_indent < prev_indent[-1] else tags[-1]
+                        
+                        if "for" in line.strip():
+                            curr_tag = 'FOR'
+
+                        elif ("if" in line.strip() or "elif" in line.strip() or "else" in line.strip() or "switch" in line.strip()) :
+                            curr_tag = 'COND'
+
+                        elif "def" in line.strip():
+                            curr_tag = 'FUNC'
+                        else:   
+                            curr_tag = ''   
+
+                        if not (curr_tag == '' and current_indent == prev_indent[-1]):
+                            while prev_indent and current_indent <= prev_indent[-1]:
+                                if prev_indent.pop() != 10e10:
+                                    
+                                    res += f"#<END_{tags.pop()}_BLOCK>\n"
+                            
+                            res += f"#<START_{curr_tag}_BLOCK>\n"
+                        
+                            tags.append(curr_tag)
+
+                            prev_indent.append(current_indent)
+
+                        res += line + '\n'
+
+                return res + '#<END_BLOCK>\n' + '#<END_CODE>\n'
+            
             def process_each_code_and_msg(each_code_and_msg, max_sol_num = 10):
                 this_dataset = []
                 question_id = each_code_and_msg['question_id']
                 question_id = str(question_id)
                 gen_code = each_code_and_msg['gen_code']
+                python_split = gen_code.split("```python\n")
+                if len(python_split) > 1:
+                    
+                    code_blocks = split_blocks(python_split[-1].split("```")[0]) 
+                    gen_code = " ".join(python_split[:-1]) + "```python\n" + code_blocks
+                    print(gen_code,"--------------------------------------\n")
                 error_msg = each_code_and_msg['error_msg']
                 question = nl_sol[question_id]['question']
                 if "no_code" not in file_type:
